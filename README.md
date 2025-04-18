@@ -37,11 +37,12 @@ Before running this code, ensure you have the [Freeway Traffic Anomalous Event D
 If you find this code useful for your research, please consider using the following citation.
 
 ```
-@misc{coursey2024ftaed,
-  title={FT-AED: Benchmark Dataset for Early Freeway Traffic Anomalous Event Detection},
-  author={Austin Coursey and Junyi Ji and Marcos Quinones-Grueiro and William Barbour and Yuhang Zhang and Tyler Derr and Gautam Biswas and Daniel B. Work},
-  year={2024},
-  eprint={2406.15283},
-  archivePrefix={arXiv},
+@article{coursey2024ft,
+  title={FT-AED: Benchmark dataset for early freeway traffic anomalous event detection},
+  author={Coursey, Austin and Ji, Junyi and Quinones Grueiro, Marcos and Barbour, William and Zhang, Yuhang and Derr, Tyler and Biswas, Gautam and Work, Daniel},
+  journal={Advances in Neural Information Processing Systems},
+  volume={37},
+  pages={15526--15549},
+  year={2024}
 }
 ```
