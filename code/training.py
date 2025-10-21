@@ -166,9 +166,11 @@ def train_gcnae(gcnaeparams: GraphAEParameters, trainingparams: TrainingParamete
     optimizer = torch.optim.Adam(params=ae.parameters(), lr=trainingparams.learning_rate)
     weighted_mse = WeightedMSELoss(weights = mse_weights)
 
-    losses = []
+    epoch_losses = []
 
     for epoch_num in tqdm(range(trainingparams.n_epochs), disable=not verbose):
+        epoch_batch_losses = []
+
         shuffled_sequence = random.sample(training_data, len(training_data))
         for rgraph in shuffled_sequence:
             optimizer.zero_grad()
@@ -178,12 +180,15 @@ def train_gcnae(gcnaeparams: GraphAEParameters, trainingparams: TrainingParamete
             loss.backward()
             optimizer.step()
 
-            losses.append(loss.item())
+            epoch_batch_losses.append(loss.item())
+
+        epoch_avg_loss = np.mean(epoch_batch_losses)
+        epoch_losses.append(epoch_avg_loss)  # Store per-epoch average
 
         if verbose:
-            print(f'Epoch number {epoch_num} last 100 loss {np.mean(losses[-100:])}')
+            print(f'Epoch number {epoch_num + 1} loss: {epoch_avg_loss}')
 
-    return ae, losses
+    return ae, epoch_losses
 
 def train_gatstae(staeparams: GATSTAEParameters, trainingparams: TrainingParameters, training_data: PyGData, mse_weights: list = [1,1,1], verbose=False):
     ae = GATSpatioTemporalAutoencoder(staeparams)
