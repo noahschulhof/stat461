@@ -69,7 +69,7 @@ def find_delays(thresh, errors, anomaly_labels, crash_reported, changed_sr=False
         # do something here
         pass
     
-    anomaly_pred = threshold_anomalies(thresh+thresholds[no_fp_index,1], errors)
+    anomaly_pred = threshold_anomalies(thresh + thresholds[no_fp_index][1], errors)
     delays, detects = crash_detection_delay(anomaly_pred, crash_reported, sr=sr) 
     results.append([0, np.mean(delays), np.std(delays), np.sum(detects)/12])
 
@@ -83,7 +83,7 @@ def find_delays(thresh, errors, anomaly_labels, crash_reported, changed_sr=False
             delays = [15/sr]
         results.append([thresholds[offset_index,0], np.mean(delays), np.std(delays), np.sum(detects)/12])
         
-    anomaly_pred = threshold_anomalies(thresh+thresholds[all_fp_index,1], errors)
+    anomaly_pred = threshold_anomalies(thresh+thresholds[all_fp_index][1], errors)
     delays, detects = crash_detection_delay(anomaly_pred, crash_reported, sr=sr) 
     results.append([1, np.mean(delays), np.std(delays), np.sum(detects)/12])
 
