@@ -9,32 +9,32 @@ import torch_geometric as pyg
 from parameters import GATAEParameters, RSTAEParameters, STAEParameters, GATSTAEParameters, GraphAEParameters, TransformerAEParameters, MLPAEParameters
 from datautils import generate_edges
 
-class GraphEncoder(nn.Module):
-    def __init__(self, num_features, hidden_dim, latent_dim, num_layers, dropout_percentage=0.1):
-        super().__init__()
-        self.num_layers = num_layers
+# class GraphEncoder(nn.Module):
+#     def __init__(self, num_features, hidden_dim, latent_dim, num_layers, dropout_percentage=0.1):
+#         super().__init__()
+#         self.num_layers = num_layers
 
-        # Define a ModuleList to store the dynamic number of RGCNConv layers
-        self.conv_layers = nn.ModuleList([GCNConv(num_features, hidden_dim)])
-        for _ in range(self.num_layers - 1):
-            self.conv_layers.append(GCNConv(hidden_dim, hidden_dim))
+#         # Define a ModuleList to store the dynamic number of RGCNConv layers
+#         self.conv_layers = nn.ModuleList([GCNConv(num_features, hidden_dim)])
+#         for _ in range(self.num_layers - 1):
+#             self.conv_layers.append(GCNConv(hidden_dim, hidden_dim))
 
-        self.fc = nn.Linear(hidden_dim, latent_dim)
+#         self.fc = nn.Linear(hidden_dim, latent_dim)
 
-        self.dropout_percentage = dropout_percentage
+#         self.dropout_percentage = dropout_percentage
     
-    def forward(self, data):
-        x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
+#     def forward(self, data):
+#         x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
         
-        # Loop through the RGCNConv layers
-        for conv_layer in self.conv_layers:
-            x = conv_layer(x, edge_index, edge_attr)
-            x = F.relu(x)
+#         # Loop through the RGCNConv layers
+#         for conv_layer in self.conv_layers:
+#             x = conv_layer(x, edge_index, edge_attr)
+#             x = F.relu(x)
 
-        x = F.dropout(x, p=self.dropout_percentage, training=self.training)
-        x = pyg.nn.global_mean_pool(x, data.batch)
-        z = self.fc(x)
-        return z
+#         x = F.dropout(x, p=self.dropout_percentage, training=self.training)
+#         x = pyg.nn.global_mean_pool(x, data.batch)
+#         z = self.fc(x)
+#         return z
     
 
 class LatentTemporalAggregator(nn.Module):
@@ -51,17 +51,14 @@ class LatentTemporalAggregator(nn.Module):
     
 
 # class GraphDecoder(nn.Module):
-#     def __init__(self, num_features, hidden_dim, latent_dim, num_nodes=196, replicate_latent=False):
+#     def __init__(self, num_features, hidden_dim, latent_dim, num_nodes=196, replicate_latent=False, num_gcn_layers=5):
 #         super(GraphDecoder, self).__init__()
+
 #         self.fc = nn.Linear(latent_dim, num_nodes * latent_dim)
-#         self.conv1 = GCNConv(latent_dim, hidden_dim)
-#         # self.conv2 = GCNConv(hidden_dim, num_features)
-#         self.conv2 = GCNConv(hidden_dim, hidden_dim)
-        
-#         self.conv3 = GCNConv(hidden_dim, hidden_dim)
-#         self.conv4 = GCNConv(hidden_dim, num_features)
-        
-#         # self.head = nn.Linear(num_features)
+#         self.gcn_layers = nn.ModuleList([GCNConv(latent_dim, hidden_dim)])
+#         for _ in range(num_gcn_layers - 1):
+#             self.gcn_layers.append(GCNConv(hidden_dim, hidden_dim))
+#         self.gcn_layers.append(GCNConv(hidden_dim, num_features))
 
 #         self.hidden_dim = hidden_dim
 #         self.num_features = num_features
@@ -71,58 +68,19 @@ class LatentTemporalAggregator(nn.Module):
 
 #     def forward(self, z, edge_index):
 #         if self.replicate_latent:
-#             # 'Trick' to make the decoding work
-#             # Replicate the latent vector for every node
-#             # Suggested by ChatGPT
-#             z = z.unsqueeze(0).expand(self.num_nodes, -1)
+#             x = z.unsqueeze(0).expand(self.num_nodes, -1)
 #         else:
-#             # Nonlinear projection to increased size and give fixed latent space to each node
-#             # Makes the speed reconstruction much more expressive than above
-#             z = z.unsqueeze(0)
-#             z = self.fc(z)
-#             z = F.relu(z)
-#             z = z.view(self.num_nodes, self.latent_dim)
+#             x = z.unsqueeze(0)
+#             x = self.fc(x)
+#             x= F.relu(x)
+#             x = x.view(self.num_nodes, self.latent_dim)
 
-#         x = self.conv1(z, edge_index)
-#         x = F.relu(x)
-#         x = self.conv2(x, edge_index)
-#         x = F.relu(x)
-#         x = self.conv3(x, edge_index)
-#         x = F.relu(x)
-#         x = self.conv4(x, edge_index)
+#         for i, layer in enumerate(self.gcn_layers):
+#             x = layer(x, edge_index)
+#             if i < len(self.gcn_layers) - 1:  # Apply ReLU for all layers except the last one
+#                 x = F.relu(x)
+
 #         return x
-    
-class GraphDecoder(nn.Module):
-    def __init__(self, num_features, hidden_dim, latent_dim, num_nodes=196, replicate_latent=False, num_gcn_layers=5):
-        super(GraphDecoder, self).__init__()
-
-        self.fc = nn.Linear(latent_dim, num_nodes * latent_dim)
-        self.gcn_layers = nn.ModuleList([GCNConv(latent_dim, hidden_dim)])
-        for _ in range(num_gcn_layers - 1):
-            self.gcn_layers.append(GCNConv(hidden_dim, hidden_dim))
-        self.gcn_layers.append(GCNConv(hidden_dim, num_features))
-
-        self.hidden_dim = hidden_dim
-        self.num_features = num_features
-        self.latent_dim = latent_dim
-        self.replicate_latent = replicate_latent
-        self.num_nodes = num_nodes
-
-    def forward(self, z, edge_index):
-        if self.replicate_latent:
-            x = z.unsqueeze(0).expand(self.num_nodes, -1)
-        else:
-            x = z.unsqueeze(0)
-            x = self.fc(x)
-            x= F.relu(x)
-            x = x.view(self.num_nodes, self.latent_dim)
-
-        for i, layer in enumerate(self.gcn_layers):
-            x = layer(x, edge_index)
-            if i < len(self.gcn_layers) - 1:  # Apply ReLU for all layers except the last one
-                x = F.relu(x)
-
-        return x
 
     
 
@@ -300,17 +258,17 @@ class RelationalSTAE(nn.Module):
         xhat = self.dec(z, self.reconstructed_index)
         return xhat
     
-class GraphAE(nn.Module):
-    def __init__(self, parameters: GraphAEParameters):
-        super().__init__()
-        self.reconstructed_index = generate_edges(list(range(49))) # should probably pass the milemarker programitaclly
-        self.enc = GraphEncoder(num_features=parameters.num_features, hidden_dim=parameters.gcn_hidden_dim, latent_dim=parameters.latent_dim, dropout_percentage=parameters.dropout, num_layers=parameters.num_gcn)
-        self.dec = GraphDecoder(num_features=parameters.num_features, hidden_dim=parameters.gcn_hidden_dim, latent_dim=parameters.latent_dim, num_nodes=196, num_gcn_layers=parameters.num_gcn)
+# class GraphAE(nn.Module):
+#     def __init__(self, parameters: GraphAEParameters):
+#         super().__init__()
+#         self.reconstructed_index = generate_edges(list(range(49))) # should probably pass the milemarker programitaclly
+#         self.enc = GraphEncoder(num_features=parameters.num_features, hidden_dim=parameters.gcn_hidden_dim, latent_dim=parameters.latent_dim, dropout_percentage=parameters.dropout, num_layers=parameters.num_gcn)
+#         self.dec = GraphDecoder(num_features=parameters.num_features, hidden_dim=parameters.gcn_hidden_dim, latent_dim=parameters.latent_dim, num_nodes=196, num_gcn_layers=parameters.num_gcn)
 
-    def forward(self, x):
-        z = self.enc(x)
-        xhat = self.dec(z, self.reconstructed_index)
-        return xhat
+#     def forward(self, x):
+#         z = self.enc(x)
+#         xhat = self.dec(z, self.reconstructed_index)
+#         return xhat
     
     
 class TransformerAutoencoder(nn.Module):
@@ -406,3 +364,240 @@ class MLPAutoencoder(nn.Module):
         decoded = self.decoder(encoded)
 
         return decoded
+    
+
+
+
+
+
+class ResidualGCNLayer(nn.Module):
+    def __init__(self, in_features, out_features, dropout=0.1):
+        super().__init__()
+        self.gcn = GCNConv(in_features, out_features)
+        self.dropout = nn.Dropout(dropout)
+        self.residual = nn.Identity() if in_features == out_features else nn.Linear(in_features, out_features)
+
+    def forward(self, x, edge_index):
+        residual = self.residual(x)
+        x = self.gcn(x, edge_index)
+        x = F.relu(x)
+        x = self.dropout(x)
+        return x + residual
+
+# class GraphEncoder(nn.Module):
+#     def __init__(self, num_features, hidden_dim, latent_dim, num_layers, dropout_percentage=0.1, use_residual=True):
+#         super().__init__()
+#         self.num_layers = num_layers
+#         self.use_residual = use_residual
+
+#         if use_residual:
+#             # Residual version
+#             self.conv_layers = nn.ModuleList()
+            
+#             # First layer
+#             self.conv_layers.append(ResidualGCNLayer(num_features, hidden_dim, dropout_percentage))
+            
+#             # Middle layers
+#             for _ in range(self.num_layers - 2):
+#                 self.conv_layers.append(ResidualGCNLayer(hidden_dim, hidden_dim, dropout_percentage))
+            
+#             # Last layer (no residual for the final projection)
+#             self.conv_layers.append(GCNConv(hidden_dim, hidden_dim))
+#         else:
+#             # Original version
+#             self.conv_layers = nn.ModuleList([GCNConv(num_features, hidden_dim)])
+#             for _ in range(self.num_layers - 1):
+#                 self.conv_layers.append(GCNConv(hidden_dim, hidden_dim))
+
+#         self.fc = nn.Linear(hidden_dim, latent_dim)
+#         self.dropout_percentage = dropout_percentage
+    
+#     def forward(self, data):
+#         x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
+        
+#         # Loop through the GCN layers
+#         for i, conv_layer in enumerate(self.conv_layers):
+#             if self.use_residual and i < len(self.conv_layers) - 1:
+#                 # Use residual layers for all but the last layer
+#                 x = conv_layer(x, edge_index, edge_attr)
+#             else:
+#                 # Last layer or non-residual mode
+#                 if edge_attr is not None:
+#                     x = conv_layer(x, edge_index, edge_attr)
+#                 else:
+#                     x = conv_layer(x, edge_index)
+#                 if i < len(self.conv_layers) - 1:  # Apply ReLU for all but last
+#                     x = F.relu(x)
+#                     x = F.dropout(x, p=self.dropout_percentage, training=self.training)
+
+#         x = F.dropout(x, p=self.dropout_percentage, training=self.training)
+#         x = pyg.nn.global_mean_pool(x, data.batch)
+#         z = self.fc(x)
+#         return z
+
+# class GraphDecoder(nn.Module):
+#     def __init__(self, num_features, hidden_dim, latent_dim, num_nodes=196, replicate_latent=False, num_gcn_layers=5, use_residual=True):
+#         super(GraphDecoder, self).__init__()
+
+#         self.fc = nn.Linear(latent_dim, num_nodes * latent_dim)
+        
+#         if use_residual:
+#             # Residual version
+#             self.gcn_layers = nn.ModuleList()
+            
+#             # First layer
+#             self.gcn_layers.append(ResidualGCNLayer(latent_dim, hidden_dim))
+            
+#             # Middle layers
+#             for _ in range(num_gcn_layers - 2):
+#                 self.gcn_layers.append(ResidualGCNLayer(hidden_dim, hidden_dim))
+            
+#             # Last layer (no residual for final output)
+#             self.gcn_layers.append(GCNConv(hidden_dim, num_features))
+#         else:
+#             # Original version
+#             self.gcn_layers = nn.ModuleList([GCNConv(latent_dim, hidden_dim)])
+#             for _ in range(num_gcn_layers - 1):
+#                 self.gcn_layers.append(GCNConv(hidden_dim, hidden_dim))
+#             self.gcn_layers.append(GCNConv(hidden_dim, num_features))
+
+#         self.hidden_dim = hidden_dim
+#         self.num_features = num_features
+#         self.latent_dim = latent_dim
+#         self.replicate_latent = replicate_latent
+#         self.num_nodes = num_nodes
+#         self.use_residual = use_residual
+
+#     def forward(self, z, edge_index):
+#         if self.replicate_latent:
+#             x = z.unsqueeze(0).expand(self.num_nodes, -1)
+#         else:
+#             x = z.unsqueeze(0)
+#             x = self.fc(x)
+#             x = F.relu(x)
+#             x = x.view(self.num_nodes, self.latent_dim)
+
+#         for i, layer in enumerate(self.gcn_layers):
+#             if self.use_residual and i < len(self.gcn_layers) - 1:
+#                 # Use residual layers for all but the last layer
+#                 x = layer(x, edge_index)
+#             else:
+#                 # Last layer or non-residual mode
+#                 x = layer(x, edge_index)
+#                 if i < len(self.gcn_layers) - 1:  # Apply ReLU for all layers except the last one
+#                     x = F.relu(x)
+
+#         return x
+
+class GraphEncoder(nn.Module):
+    def __init__(self, num_features, hidden_dim, latent_dim, num_layers, dropout=0.1):
+        super().__init__()
+        self.conv_layers = nn.ModuleList()
+        
+        # First layer
+        self.conv_layers.append(ResidualGCNLayer(num_features, hidden_dim, dropout))
+        
+        # Middle layers  
+        for _ in range(num_layers - 2):
+            self.conv_layers.append(ResidualGCNLayer(hidden_dim, hidden_dim, dropout))
+        
+        # Last layer
+        self.conv_layers.append(ResidualGCNLayer(hidden_dim, hidden_dim, dropout))
+        
+        self.fc = nn.Linear(hidden_dim, latent_dim)
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        
+        for conv_layer in self.conv_layers:
+            x = conv_layer(x, edge_index)
+            
+        x = pyg.nn.global_mean_pool(x, data.batch).squeeze()  # Shape: [batch_size, hidden_dim]
+        z = self.fc(x)  # Shape: [batch_size, latent_dim]
+        return z
+
+class GraphDecoder(nn.Module):
+    def __init__(self, num_features, hidden_dim, latent_dim, num_nodes=196, num_layers=5):
+        super().__init__()
+        self.gcn_layers = nn.ModuleList()
+        
+        # First layer
+        self.gcn_layers.append(ResidualGCNLayer(latent_dim, hidden_dim))
+        
+        # Middle layers
+        for _ in range(num_layers - 2):
+            self.gcn_layers.append(ResidualGCNLayer(hidden_dim, hidden_dim))
+        
+        # Last layer  
+        self.gcn_layers.append(GCNConv(hidden_dim, num_features))
+        
+        self.num_nodes = num_nodes
+        self.latent_dim = latent_dim
+
+    def forward(self, z, edge_index):
+        # If z is [1, latent_dim], squeeze to [latent_dim]
+        if z.dim() == 2 and z.shape[0] == 1:
+            z = z.squeeze(0)
+        
+        x = z.unsqueeze(0).expand(self.num_nodes, -1)
+        
+        for layer in self.gcn_layers[:-1]:
+            x = layer(x, edge_index)
+            
+        x = self.gcn_layers[-1](x, edge_index)
+        return x
+
+# class GraphAE(nn.Module):
+#     def __init__(self, parameters: GraphAEParameters):
+#         super().__init__()
+#         self.reconstructed_index = generate_edges(list(range(49)))
+        
+#         # Increase number of layers for deeper architecture
+#         num_layers = max(4, parameters.num_gcn)  # Use at least 4 layers
+        
+#         self.enc = GraphEncoder(
+#             num_features=parameters.num_features, 
+#             hidden_dim=parameters.gcn_hidden_dim, 
+#             latent_dim=parameters.latent_dim, 
+#             dropout_percentage=parameters.dropout, 
+#             num_layers=num_layers,
+#             use_residual=True  # Enable residual connections
+#         )
+#         self.dec = GraphDecoder(
+#             num_features=parameters.num_features, 
+#             hidden_dim=parameters.gcn_hidden_dim, 
+#             latent_dim=parameters.latent_dim, 
+#             num_nodes=196, 
+#             num_gcn_layers=num_layers,
+#             use_residual=True  # Enable residual connections
+#         )
+
+#     def forward(self, x):
+#         z = self.enc(x)
+#         xhat = self.dec(z, self.reconstructed_index)
+#         return xhat
+
+class GraphAE(nn.Module):
+    def __init__(self, parameters: GraphAEParameters):
+        super().__init__()
+        self.reconstructed_index = generate_edges(list(range(49)))
+        
+        self.enc = GraphEncoder(
+            num_features=parameters.num_features, 
+            hidden_dim=parameters.gcn_hidden_dim, 
+            latent_dim=parameters.latent_dim, 
+            num_layers=parameters.num_gcn,  # Use parameters.num_gcn directly
+            dropout=parameters.dropout
+        )
+        self.dec = GraphDecoder(
+            num_features=parameters.num_features, 
+            hidden_dim=parameters.gcn_hidden_dim, 
+            latent_dim=parameters.latent_dim, 
+            num_nodes=196, 
+            num_layers=parameters.num_gcn  # Changed from num_gcn_layers to num_layers
+        )
+
+    def forward(self, x):
+        z = self.enc(x)
+        xhat = self.dec(z, self.reconstructed_index)
+        return xhat
