@@ -163,7 +163,7 @@ def train_mlpae(params: MLPAEParameters, trainingparams: TrainingParameters, tra
 
 def train_gcnae(gcnaeparams: GraphAEParameters, trainingparams: TrainingParameters, training_data, mse_weights: list = [1,1,1], verbose=False):
     ae = GraphAE(gcnaeparams)
-    optimizer = torch.optim.Adam(params=ae.parameters(), lr=trainingparams.learning_rate)
+    optimizer = torch.optim.AdamW(params=ae.parameters(), lr=trainingparams.learning_rate, weight_decay = 1e-4)
     weighted_mse = WeightedMSELoss(weights = mse_weights)
 
     epoch_losses = []
@@ -174,7 +174,12 @@ def train_gcnae(gcnaeparams: GraphAEParameters, trainingparams: TrainingParamete
         shuffled_sequence = random.sample(training_data, len(training_data))
         for rgraph in shuffled_sequence:
             optimizer.zero_grad()
-            xhat = ae(rgraph) # encode and decode the sequence
+
+            masked_graph = rgraph.clone()
+            mask = torch.rand_like(masked_graph.x) > gcnaeparams.mask_prob
+            masked_graph.x = masked_graph.x * mask.float()
+
+            xhat = ae(masked_graph) # encode and decode the sequence
 
             loss = weighted_mse(xhat, rgraph.x)
             loss.backward()

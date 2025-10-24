@@ -44,6 +44,7 @@ class GraphAEParameters:
     gcn_hidden_dim: int
     dropout: int
     num_gcn: int
+    mask_prob: float
     
 @dataclass
 class TransformerAEParameters:
