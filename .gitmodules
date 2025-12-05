@@ -1,0 +1,3 @@
+[submodule "STGAN"]
+	path = STGAN
+	url = https://github.com/noahschulhof/STGAN
