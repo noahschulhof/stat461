@@ -468,3 +468,86 @@ def fill_result_df(anomalies, speeds, recons_speeds, timesteps):
     df = build_result_df(anomalies.flatten(), lanes, mms, times, speeds.flatten(), recons_speeds.flatten())
 
     return df
+
+
+def train_sttcn_ae(staeparams: STAEParameters, trainingparams: TrainingParameters, training_data, mse_weights: list = [1,1,1], verbose=False):
+    """
+    Train SpatioTemporal TCN Autoencoder.
+    training_data: list of length-L windows, each window is a list[PyG Data] of length `trainingparams.timesteps`.
+    """
+    import random
+    import numpy as np
+    from tqdm import tqdm
+    from models import SpatioTemporalTCNAutoencoder
+
+    ae = SpatioTemporalTCNAutoencoder(staeparams)
+    optimizer = torch.optim.Adam(params=ae.parameters(), lr=trainingparams.learning_rate)
+    weighted_mse = WeightedMSELoss(weights=mse_weights)
+
+    losses = []
+    for epoch_num in tqdm(range(trainingparams.n_epochs), disable=not verbose):
+        shuffled = random.sample(training_data, len(training_data))
+        for window in shuffled:
+            optimizer.zero_grad()
+            # Model reconstructs the last frame in the window
+            xhat = ae(window)
+            target = window[-1].x
+            loss = weighted_mse(xhat, target)
+            loss.backward()
+            optimizer.step()
+            losses.append(loss.item())
+        if verbose and len(losses) >= 10:
+            print(f'Epoch {epoch_num}: last 100 avg loss {np.mean(losses[-100:])}')
+    return ae, losses
+
+
+def compute_anomaly_threshold_sttcn_ae(training_data, model, weights, method='max'):
+    """
+    Compute node-wise anomaly threshold from reconstruction errors on training windows.
+    """
+    import numpy as np
+    from tqdm import tqdm
+
+    model.eval()
+    errors = []
+    for window in tqdm(training_data):
+        xhat = model(window)
+        error = (xhat - window[-1].x) ** 2
+        error = error.detach().numpy()
+        weighted = compute_weighted_error(error, weights)
+        errors.append(weighted)
+
+    errors = np.array(errors)
+    if method == 'max':         # max over training data
+        return np.max(errors, axis=0)
+    elif method == 'mean':      # mean + 3*std
+        return np.mean(errors, axis=0) + 3*np.std(errors, axis=0)
+    else:
+        raise NotImplementedError(f"Unknown method {method}")
+
+
+def test_sttcn_ae(test_sequence, weights, model, verbose=False):
+    """
+    Evaluate on test windows.
+    Returns dict: {"errors": [T x N], "recons_speeds": [T x N], "speeds": [T x N]}
+    """
+    import numpy as np
+    from tqdm import tqdm
+
+    model.eval()
+    errors = []
+    recons_speeds = []
+    speeds = []
+    for window in tqdm(test_sequence, disable=not verbose):
+        xhat = model(window)
+        target_x = window[-1].x
+
+        error = (xhat - target_x) ** 2
+        error_np = error.detach().numpy()
+        weighted = compute_weighted_error(error_np, weights)
+
+        recons_speeds.append(xhat.detach().numpy()[:, 1])
+        speeds.append(target_x[:, 1].detach().numpy())
+        errors.append(weighted)
+
+    return  np.array(errors), np.array(recons_speeds), np.array(speeds)

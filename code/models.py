@@ -406,3 +406,138 @@ class MLPAutoencoder(nn.Module):
         decoded = self.decoder(encoded)
 
         return decoded
+    
+
+
+
+# =========================
+# New models (append below)
+# =========================
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+# --- Simple causal TCN blocks for latent aggregation ---
+
+class _CausalConv1d(nn.Module):
+    """Causal 1D conv implemented by left-padding then regular Conv1d (no right lookahead)."""
+    def __init__(self, in_ch, out_ch, kernel_size=3, dilation=1):
+        super().__init__()
+        self.pad = (kernel_size - 1) * dilation
+        self.conv = nn.Conv1d(in_ch, out_ch, kernel_size, dilation=dilation)
+
+    def forward(self, x):
+        # x: [B, C, T]
+        x = F.pad(x, (self.pad, 0))  # left pad only (causal)
+        return self.conv(x)
+
+
+class TemporalConvBlock(nn.Module):
+    """Residual TCN block: (Conv -> ReLU -> Dropout -> Conv) + residual."""
+    def __init__(self, channels, kernel_size=3, dilation=1, dropout=0.1):
+        super().__init__()
+        c_in, c_out = channels
+        self.conv1 = _CausalConv1d(c_in, c_out, kernel_size, dilation)
+        self.conv2 = _CausalConv1d(c_out, c_out, kernel_size, dilation)
+        self.dropout = nn.Dropout(dropout)
+        self.downsample = nn.Conv1d(c_in, c_out, 1) if c_in != c_out else nn.Identity()
+        self.norm = nn.LayerNorm(c_out)
+
+    def forward(self, x):
+        # x: [B, C, T]
+        residual = self.downsample(x)
+        out = self.conv1(x)
+        out = F.relu(out)
+        out = self.dropout(out)
+        out = self.conv2(out)
+        out = self.dropout(out)
+        out = out + residual
+    
+        out = out.transpose(1, 2)
+        out = self.norm(out)
+        out = out.transpose(1, 2)
+        out = F.relu(out)
+        return out
+
+
+class TemporalConvNet(nn.Module):
+    """Stack of TemporalConvBlock with exponentially increasing dilations."""
+    def __init__(self, in_ch, hidden_ch=64, num_blocks=4, kernel_size=3, dropout=0.1):
+        super().__init__()
+        chans = [in_ch] + [hidden_ch] * num_blocks
+        dilations = [2 ** i for i in range(num_blocks)]
+        blocks = []
+        for i in range(num_blocks):
+            blocks.append(
+                TemporalConvBlock(
+                    channels=(chans[i], chans[i + 1]),
+                    kernel_size=kernel_size,
+                    dilation=dilations[i],
+                    dropout=dropout,
+                )
+            )
+        self.net = nn.Sequential(*blocks)
+
+    def forward(self, x):
+        # x: [B, C, T]
+        return self.net(x)
+
+
+# -------------------------------------------------------------------
+# 1) SpatioTemporal TCN Autoencoder (GCN encoder + TCN + GCN decoder)
+#     – drop-in replacement for the LSTM-based STAE
+# -------------------------------------------------------------------
+
+class SpatioTemporalTCNAutoencoder(nn.Module):
+    """
+    Same input pattern as your SpatioTemporalAutoencoder:
+      forward(temporal_graphs: List[pyg.data.Data]) -> reconstruction of last frame
+    Uses GraphEncoder -> TCN over latent sequence -> GraphDecoder.
+    """
+    def __init__(self, params: STAEParameters, tcn_hidden=128, tcn_blocks=3, tcn_dropout=0.05637794327123946):
+        super().__init__()
+        self.enc = GraphEncoder(
+            num_features=params.num_features,
+            hidden_dim=params.gcn_hidden_dim,
+            latent_dim=params.latent_dim,
+            num_layers=2,
+            dropout_percentage=params.dropout,
+        )
+
+        self.tcn = TemporalConvNet(
+            in_ch=params.latent_dim,
+            hidden_ch=tcn_hidden,
+            num_blocks=tcn_blocks,
+            kernel_size=3,
+            dropout=tcn_dropout,
+        )
+        self.tcn_proj = nn.Conv1d(tcn_hidden, params.latent_dim, kernel_size=1)
+
+        self.dec = GraphDecoder(
+            num_features=params.num_features,
+            hidden_dim=params.gcn_hidden_dim,
+            latent_dim=params.latent_dim,
+            num_gcn_layers=2,
+        )
+
+    def forward(self, temporal_graphs):
+        latents = [self.enc(g) for g in temporal_graphs]               
+        processed = []
+        for z in latents:
+            # z may be [1, D] (batch dim 1); squeeze it to [D]
+            if z.dim() == 2 and z.size(0) == 1:
+                z = z.squeeze(0)
+            processed.append(z)
+
+        Z = torch.stack(processed, dim=0)
+        Z = Z.transpose(0, 1).unsqueeze(0)  # [1, D, T]
+
+
+        H = self.tcn(Z)                      # [1, H, T]
+        H = self.tcn_proj(H)                 # [1, D, T]
+        z_last = H[:, :, -1].squeeze(0)      # [D]
+        xhat = self.dec(z_last, temporal_graphs[-1].edge_index)
+        return xhat
+
+
